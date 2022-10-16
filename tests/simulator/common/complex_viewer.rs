@@ -16,6 +16,7 @@ pub async fn print_anchor_status(
         "Anchor status: {}",
         serde_json::to_string::<AnchorStatus>(&anchor_status).unwrap()
     );
+    println!();
     Ok(())
 }
 
@@ -28,6 +29,7 @@ pub async fn print_appchain_settings(
         "Appchain settings: {}",
         serde_json::to_string::<AppchainSettings>(&appchain_settings).unwrap()
     );
+    println!();
     Ok(())
 }
 
@@ -40,6 +42,7 @@ pub async fn print_anchor_settings(
         "Anchor settings: {}",
         serde_json::to_string::<AnchorSettings>(&anchor_settings).unwrap()
     );
+    println!();
     Ok(())
 }
 
@@ -55,6 +58,7 @@ pub async fn print_validator_set_info_of(
         era_number.0,
         serde_json::to_string::<ValidatorSetInfo>(&validator_set_info).unwrap()
     );
+    println!();
     Ok(())
 }
 
@@ -68,6 +72,7 @@ pub async fn print_wrapped_appchain_token_info(
         "Wrapped appchain token: {}",
         serde_json::to_string::<WrappedAppchainToken>(&wrapped_appchain_token_info).unwrap()
     );
+    println!();
     Ok(())
 }
 
@@ -81,7 +86,20 @@ pub async fn print_near_fungible_tokens(
             "Near fungible token: {}",
             serde_json::to_string(&record).unwrap()
         );
+        println!();
     });
+    Ok(())
+}
+
+pub async fn print_native_near_token(
+    worker: &Worker<Sandbox>,
+    anchor: &Contract,
+) -> anyhow::Result<()> {
+    let native_near_token = anchor_viewer::get_native_near_token(worker, &anchor).await?;
+    println!(
+        "Native NEAR token: {}",
+        serde_json::to_string(&native_near_token).unwrap()
+    );
     Ok(())
 }
 
@@ -101,6 +119,7 @@ pub async fn print_validator_profile(
         &account_id,
         serde_json::to_string::<ValidatorProfile>(&validator_profile.unwrap()).unwrap()
     );
+    println!();
     let result = anchor_viewer::get_validator_profile_by_id_in_appchain(
         worker,
         &anchor,
@@ -117,6 +136,7 @@ pub async fn print_validator_profile(
             &account_id_in_appchain,
             serde_json::to_string::<ValidatorProfile>(&validator_profile.unwrap()).unwrap()
         );
+        println!();
     }
     Ok(())
 }
@@ -137,6 +157,7 @@ pub async fn print_appchain_notifications(
                 i,
                 serde_json::to_string(&appchain_notification_history).unwrap()
             );
+            println!();
         }
     }
     let records =
@@ -147,6 +168,7 @@ pub async fn print_appchain_notifications(
             record.index.0,
             serde_json::to_string(&record).unwrap()
         );
+        println!();
     });
     Ok(())
 }
@@ -165,6 +187,7 @@ pub async fn print_staking_histories(
                 i,
                 serde_json::to_string(&staking_history).unwrap()
             );
+            println!();
         }
     }
     Ok(())
@@ -190,6 +213,7 @@ pub async fn print_user_staking_histories_of(
             serde_json::to_string(&staking_history).unwrap()
         );
         index += 1;
+        println!();
     }
     Ok(())
 }
@@ -217,6 +241,7 @@ pub async fn print_validator_list_of(
             );
         }
         index += 1;
+        println!();
     }
     Ok(())
 }
@@ -240,6 +265,7 @@ pub async fn print_delegator_list_of(
             serde_json::to_string(&delegator).unwrap()
         );
         index += 1;
+        println!();
     }
     Ok(())
 }
@@ -261,6 +287,7 @@ pub async fn print_validator_reward_histories(
             serde_json::to_string(&reward_history).unwrap()
         );
         index += 1;
+        println!();
     }
     Ok(())
 }
@@ -285,6 +312,7 @@ pub async fn print_delegator_reward_histories(
             serde_json::to_string(&reward_history).unwrap()
         );
         index += 1;
+        println!();
     }
     Ok(())
 }
@@ -304,6 +332,7 @@ pub async fn print_unbonded_stakes_of(
             serde_json::to_string(&unbonded_stake).unwrap()
         );
         index += 1;
+        println!();
     }
     Ok(())
 }
@@ -318,6 +347,7 @@ pub async fn print_latest_appchain_commitment(
         "Latest appchain commitment: {}",
         serde_json::to_string::<Option<AppchainCommitment>>(&appchain_commitment).unwrap()
     );
+    println!();
     Ok(())
 }
 
@@ -332,6 +362,7 @@ pub async fn print_wat_balance_of_anchor(
         "Wrapped appchain token balance of anchor contract: {}",
         wat_balance_of_anchor.0
     );
+    println!();
     Ok(())
 }
 
@@ -346,6 +377,7 @@ pub async fn print_appchain_messages(
             appchain_message.nonce,
             serde_json::to_string(&appchain_message).unwrap()
         );
+        println!();
     }
     Ok(())
 }
@@ -364,6 +396,7 @@ pub async fn print_appchain_messages_processing_results(
             serde_json::to_string(&appchain_message).unwrap()
         );
         index += 1;
+        println!();
     }
     Ok(())
 }

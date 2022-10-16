@@ -1,20 +1,30 @@
+use crate::*;
 use near_contract_standards::fungible_token::metadata::FungibleTokenMetadata;
 use near_contract_standards::non_fungible_token::metadata::NFTContractMetadata;
 use near_sdk::borsh::maybestd::collections::HashMap;
-use near_sdk::{json_types::I128, BlockHeight};
-
-use crate::*;
+use near_sdk::json_types::I128;
 
 pub type AppchainId = String;
 
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(crate = "near_sdk::serde")]
+pub enum AppchainTemplateType {
+    Barnacle,
+    BarnacleEvm,
+}
+
 pub struct AccountIdInAppchain {
+    appchain_template_type: AppchainTemplateType,
     origin: Option<String>,
     raw_string: String,
 }
 
 impl AccountIdInAppchain {
     ///
-    pub fn new(id_in_appchain: Option<String>) -> Self {
+    pub fn new(
+        id_in_appchain: Option<String>,
+        appchain_template_type: &AppchainTemplateType,
+    ) -> Self {
         let mut value = String::new();
         if let Some(id_in_appchain) = id_in_appchain.clone() {
             if !id_in_appchain.to_lowercase().starts_with("0x") {
@@ -23,6 +33,7 @@ impl AccountIdInAppchain {
             value.push_str(&id_in_appchain);
         }
         Self {
+            appchain_template_type: appchain_template_type.clone(),
             origin: id_in_appchain,
             raw_string: value.to_lowercase(),
         }
@@ -31,7 +42,10 @@ impl AccountIdInAppchain {
     pub fn is_valid(&self) -> bool {
         if self.raw_string.len() > 2 {
             match hex::decode(&self.raw_string.as_str()[2..self.raw_string.len()]) {
-                Ok(bytes) => bytes.len() == 32,
+                Ok(bytes) => match self.appchain_template_type {
+                    AppchainTemplateType::Barnacle => bytes.len() == 32,
+                    AppchainTemplateType::BarnacleEvm => bytes.len() == 20,
+                },
                 Err(_) => false,
             }
         } else {
@@ -199,6 +213,14 @@ pub struct NearFungibleToken {
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
 #[serde(crate = "near_sdk::serde")]
+pub struct NativeNearToken {
+    pub locked_balance: U128,
+    pub bridging_state: BridgingState,
+    pub price_in_usd: U128,
+}
+
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
+#[serde(crate = "near_sdk::serde")]
 pub enum StakingFact {
     /// A new validator is registered in appchain anchor
     ValidatorRegistered {
@@ -266,14 +288,20 @@ pub enum StakingFact {
         validator_id: AccountId,
         validator_id_in_appchain: String,
     },
+    /// A delegator changed his/her validator
+    DelegatedValidatorChanged {
+        delegator_id: AccountId,
+        old_validator_id: AccountId,
+        new_validator_id: AccountId,
+    },
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
 #[serde(crate = "near_sdk::serde")]
 pub struct StakingHistory {
     pub staking_fact: StakingFact,
-    pub block_height: BlockHeight,
-    pub timestamp: Timestamp,
+    pub block_height: U64,
+    pub timestamp: U64,
     pub index: U64,
 }
 
@@ -346,15 +374,6 @@ pub enum AnchorEvent {
     },
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
-#[serde(crate = "near_sdk::serde")]
-pub struct AnchorEventHistory {
-    pub anchor_event: AnchorEvent,
-    pub block_height: BlockHeight,
-    pub timestamp: Timestamp,
-    pub index: U64,
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(crate = "near_sdk::serde")]
 pub struct AppchainValidator {
@@ -391,7 +410,8 @@ pub struct UnbondedStake {
 
 /// The actual processing order is:
 /// `CopyingFromLastEra` -> `UnbondingValidator`-> `AutoUnbondingValidator`
-/// -> `ApplyingStakingHistory` -> `ReadyForDistributingReward` -> `DistributingReward`
+/// -> `ApplyingStakingHistory` -> `SyncingStakingAmountToCouncil` -> `ReadyForDistributingReward`
+/// -> `DistributingReward`
 /// -> `CheckingForAutoUnbondingValidator` -> `Completed`
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(crate = "near_sdk::serde")]
@@ -421,6 +441,7 @@ pub enum ValidatorSetProcessingStatus {
     CheckingForAutoUnbondingValidator {
         unprofitable_validator_index: U64,
     },
+    SyncingStakingAmountToCouncil,
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -461,7 +482,6 @@ pub struct AnchorStatus {
     pub delegator_count_in_next_era: U64,
     pub index_range_of_appchain_notification_history: IndexRange,
     pub index_range_of_validator_set_history: IndexRange,
-    pub index_range_of_anchor_event_history: IndexRange,
     pub index_range_of_staking_history: IndexRange,
     pub nonce_range_of_appchain_messages: IndexRange,
     pub index_range_of_appchain_challenges: IndexRange,
@@ -509,7 +529,7 @@ pub struct ValidatorProfile {
 pub enum AppchainNotification {
     /// A certain amount of a NEAR fungible token has been locked in appchain anchor.
     NearFungibleTokenLocked {
-        contract_account: AccountId,
+        contract_account: String,
         sender_id_in_near: AccountId,
         receiver_id_in_appchain: String,
         amount: U128,
@@ -541,8 +561,8 @@ pub enum AppchainNotification {
 #[serde(crate = "near_sdk::serde")]
 pub struct AppchainNotificationHistory {
     pub appchain_notification: AppchainNotification,
-    pub block_height: BlockHeight,
-    pub timestamp: Timestamp,
+    pub block_height: U64,
+    pub timestamp: U64,
     pub index: U64,
 }
 
@@ -553,12 +573,36 @@ pub enum AppchainMessageProcessingResult {
     Error { nonce: u32, message: String },
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(crate = "near_sdk::serde")]
 pub enum MultiTxsOperationProcessingResult {
     NeedMoreGas,
     Ok,
     Error(String),
+}
+
+impl MultiTxsOperationProcessingResult {
+    ///
+    pub fn is_ok(&self) -> bool {
+        match self {
+            MultiTxsOperationProcessingResult::Ok => true,
+            _ => false,
+        }
+    }
+    ///
+    pub fn is_need_more_gas(&self) -> bool {
+        match self {
+            MultiTxsOperationProcessingResult::NeedMoreGas => true,
+            _ => false,
+        }
+    }
+    ///
+    pub fn is_error(&self) -> bool {
+        match self {
+            MultiTxsOperationProcessingResult::Error(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
@@ -599,8 +643,8 @@ pub struct AppchainCommitment {
 #[serde(crate = "near_sdk::serde")]
 pub struct UserStakingHistory {
     pub staking_fact: StakingFact,
-    pub block_height: BlockHeight,
-    pub timestamp: Timestamp,
+    pub block_height: U64,
+    pub timestamp: U64,
     pub has_taken_effect: bool,
 }
 

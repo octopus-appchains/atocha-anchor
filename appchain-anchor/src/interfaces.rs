@@ -7,8 +7,10 @@ use near_contract_standards::{
 use crate::*;
 
 pub trait AnchorViewer {
-    /// Get version of this contract
+    /// Get version of this contract.
     fn get_anchor_version(&self) -> String;
+    /// Get the template type of corresponding appchain.
+    fn get_appchain_template_type(&self) -> AppchainTemplateType;
     /// Get the public key of owner account.
     /// This key will be used in creation of wrapped appchain NFT contract.
     fn get_owner_pk(&self) -> PublicKey;
@@ -26,6 +28,8 @@ pub trait AnchorViewer {
     fn get_near_fungible_tokens(&self) -> Vec<NearFungibleToken>;
     /// Get info of wrapped appchain NFT contracts which has registered in this contract.
     fn get_wrapped_appchain_nfts(&self) -> Vec<WrappedAppchainNFT>;
+    /// Get info of native NEAR token which is locked in receiver sub-account
+    fn get_native_near_token(&self) -> NativeNearToken;
     /// Get state of corresponding appchain.
     fn get_appchain_state(&self) -> AppchainState;
     /// Get current status of anchor.
@@ -195,8 +199,6 @@ pub trait OwnerActions {
     ///
     fn remove_staking_history_before(&mut self, index: U64);
     ///
-    fn remove_anchor_event_history_before(&mut self, index: U64);
-    ///
     fn remove_appchain_notification_history_before(&mut self, index: U64);
 }
 
@@ -225,6 +227,18 @@ pub trait PermissionlessActions {
     fn process_appchain_messages(&mut self) -> MultiTxsOperationProcessingResult;
     ///
     fn commit_appchain_challenge(&mut self, appchain_challenge: AppchainChallenge);
+    //
+    fn process_appchain_messages_with_all_proofs(
+        &mut self,
+        signed_commitment: Vec<u8>,
+        validator_proofs: Vec<ValidatorMerkleProof>,
+        mmr_leaf_for_mmr_root: Vec<u8>,
+        mmr_proof_for_mmr_root: Vec<u8>,
+        encoded_messages: Vec<u8>,
+        header: Vec<u8>,
+        mmr_leaf_for_header: Vec<u8>,
+        mmr_proof_for_header: Vec<u8>,
+    );
 }
 
 pub trait ProtocolSettingsManager {
@@ -314,13 +328,18 @@ pub trait StakingManager {
     /// Withdraw rewards of a certain delegator to a validator.
     /// This function can be called by any account.
     fn withdraw_delegator_rewards(&mut self, delegator_id: AccountId, validator_id: AccountId);
+    /// Change the validator which the caller is delegated to.
+    /// This function can only be called by a delegator.
+    fn change_delegated_validator(
+        &mut self,
+        old_validator_id: AccountId,
+        new_validator_id: AccountId,
+    );
 }
 
 pub trait SudoActions {
     ///
     fn set_owner_pk(&mut self, public_key: PublicKey);
-    /// Apply a certain `AppchainMessage`
-    fn stage_appchain_messages(&mut self, appchain_messages: Vec<AppchainMessage>);
     ///
     fn set_metadata_of_wrapped_appchain_token(&mut self, metadata: FungibleTokenMetadata);
     ///
@@ -330,33 +349,13 @@ pub trait SudoActions {
         value: U128,
     );
     ///
-    fn reset_validator_set_histories_to(&mut self, era_number: U64);
-    ///
-    fn reset_staking_histories_to(&mut self, era_number: U64);
-    ///
-    fn refresh_user_staking_histories(&mut self);
-    ///
-    fn reset_next_validator_set_to(&mut self, era_number: U64);
-    ///
-    fn clear_anchor_event_histories(&mut self);
-    ///
-    fn clear_appchain_notification_histories(&mut self);
+    fn regenerate_user_staking_histories(&mut self) -> MultiTxsOperationProcessingResult;
     ///
     fn reset_beefy_light_client(&mut self, initial_public_keys: Vec<String>);
-    ///
-    fn clear_reward_distribution_records(&mut self, era_number: U64);
-    ///
-    fn clear_unbonded_stakes(&mut self);
-    ///
-    fn clear_unwithdrawn_rewards(&mut self, era_number: U64);
-    ///
-    fn reset_validator_profiles_to(&mut self, era_number: U64);
     ///
     fn pause_asset_transfer(&mut self);
     ///
     fn resume_asset_transfer(&mut self);
-    ///
-    fn remove_staking_history_at(&mut self, index: U64);
     ///
     fn pause_rewards_withdrawal(&mut self);
     ///
@@ -368,19 +367,14 @@ pub trait SudoActions {
         account_id_in_appchain: String,
     );
     ///
-    fn force_change_account_id_in_appchain_of_staking_history(
-        &mut self,
-        index: U64,
-        account_id_in_appchain: String,
-    );
-    ///
-    fn remove_duplicated_message_nonces_in_reward_distribution_records(&mut self, era_number: U64);
-    ///
     fn set_latest_applied_appchain_message_nonce(&mut self, nonce: u32);
     ///
-    fn clear_appchain_messages(&mut self) -> MultiTxsOperationProcessingResult;
-    ///
-    fn try_complete_switching_era(&mut self) -> MultiTxsOperationProcessingResult;
+    fn unlock_auto_unbonded_stake_of(
+        &mut self,
+        delegator_id: Option<AccountId>,
+        validator_id: AccountId,
+        staking_history_index: U64,
+    );
 }
 
 pub trait ValidatorActions {
@@ -421,4 +415,22 @@ pub trait WrappedAppchainNFTManager {
     fn open_bridging_of_wrapped_appchain_nft(&mut self, class_id: String);
     ///
     fn close_bridging_of_wrapped_appchain_nft(&mut self, class_id: String);
+}
+
+pub trait NativeNearTokenManager {
+    ///
+    fn deploy_near_vault_contract(&mut self);
+    ///
+    fn set_price_of_native_near_token(&mut self, price: U128);
+    ///
+    fn open_bridging_of_native_near_token(&mut self);
+    ///
+    fn close_bridging_of_native_near_token(&mut self);
+    ///
+    fn generate_appchain_notification_for_near_deposit(
+        &mut self,
+        sender_id_in_near: AccountId,
+        receiver_id_in_appchain: String,
+        amount: U128,
+    );
 }

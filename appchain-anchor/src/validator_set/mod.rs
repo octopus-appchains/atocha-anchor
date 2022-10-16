@@ -114,7 +114,7 @@ impl ValidatorSet {
         }
     }
     ///
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self) -> MultiTxsOperationProcessingResult {
         let validator_ids = self.validator_id_set.to_vec();
         for validator_id in validator_ids {
             if let Some(mut delegator_id_set) =
@@ -130,14 +130,21 @@ impl ValidatorSet {
                         validator_id_set_of_delegator.clear();
                         self.delegator_id_to_validator_id_set.remove(&delegator_id);
                     }
+                    if env::used_gas() > Gas::ONE_TERA.mul(T_GAS_CAP_FOR_MULTI_TXS_PROCESSING) {
+                        return MultiTxsOperationProcessingResult::NeedMoreGas;
+                    }
                 }
                 delegator_id_set.clear();
                 self.validator_id_to_delegator_id_set.remove(&validator_id);
                 self.validators.remove(&validator_id);
+                if env::used_gas() > Gas::ONE_TERA.mul(T_GAS_CAP_FOR_MULTI_TXS_PROCESSING) {
+                    return MultiTxsOperationProcessingResult::NeedMoreGas;
+                }
             }
         }
         self.validator_id_set.clear();
         self.total_stake = 0;
+        MultiTxsOperationProcessingResult::Ok
     }
     //
     fn apply_staking_fact(&mut self, staking_fact: &StakingFact) {
@@ -358,6 +365,72 @@ impl ValidatorSet {
                 let mut validator = self.validators.get(validator_id).unwrap();
                 validator.validator_id_in_appchain = validator_id_in_appchain.to_string();
                 self.validators.insert(validator_id, &validator);
+            }
+            StakingFact::DelegatedValidatorChanged {
+                delegator_id,
+                old_validator_id,
+                new_validator_id,
+            } => {
+                //
+                let delegator = self
+                    .delegators
+                    .remove(&(delegator_id.clone(), old_validator_id.clone()))
+                    .unwrap();
+                self.delegators.insert(
+                    &(delegator_id.clone(), new_validator_id.clone()),
+                    &Delegator {
+                        delegator_id: delegator_id.clone(),
+                        validator_id: new_validator_id.clone(),
+                        registered_block_height: env::block_height(),
+                        registered_timestamp: env::block_timestamp(),
+                        deposit_amount: delegator.deposit_amount,
+                    },
+                );
+                //
+                let mut delegator_id_set = self
+                    .validator_id_to_delegator_id_set
+                    .get(old_validator_id)
+                    .unwrap();
+                delegator_id_set.remove(delegator_id);
+                if delegator_id_set.len() > 0 {
+                    self.validator_id_to_delegator_id_set
+                        .insert(old_validator_id, &delegator_id_set);
+                } else {
+                    self.validator_id_to_delegator_id_set
+                        .remove(old_validator_id);
+                }
+                //
+                if !self
+                    .validator_id_to_delegator_id_set
+                    .contains_key(new_validator_id)
+                {
+                    self.validator_id_to_delegator_id_set.insert(
+                        new_validator_id,
+                        &UnorderedSet::new(
+                            StorageKey::DelegatorIdsInMapOfVToDOfEra {
+                                era_number: self.era_number,
+                                validator_id: new_validator_id.clone(),
+                            }
+                            .into_bytes(),
+                        ),
+                    );
+                }
+                let mut delegator_id_set = self
+                    .validator_id_to_delegator_id_set
+                    .get(new_validator_id)
+                    .unwrap();
+                delegator_id_set.insert(delegator_id);
+                self.validator_id_to_delegator_id_set
+                    .insert(new_validator_id, &delegator_id_set);
+                //
+                let mut validator_id_set = self
+                    .delegator_id_to_validator_id_set
+                    .get(delegator_id)
+                    .unwrap();
+                validator_id_set.remove(old_validator_id);
+                validator_id_set.insert(new_validator_id);
+                self.delegator_id_to_validator_id_set
+                    .insert(delegator_id, &validator_id_set);
             }
         }
     }

@@ -32,7 +32,8 @@ impl UserStakingHistories {
             | StakingFact::DelegationIncreased { delegator_id, .. }
             | StakingFact::DelegationDecreased { delegator_id, .. }
             | StakingFact::DelegatorUnbonded { delegator_id, .. }
-            | StakingFact::DelegatorAutoUnbonded { delegator_id, .. } => delegator_id,
+            | StakingFact::DelegatorAutoUnbonded { delegator_id, .. }
+            | StakingFact::DelegatedValidatorChanged { delegator_id, .. } => delegator_id,
         };
         self.account_id_set.insert(account_id);
         let mut staking_histories_indexes = match self.staking_histories_map.get(account_id) {
@@ -53,10 +54,14 @@ impl UserStakingHistories {
         }
     }
     ///
-    pub fn clear(&mut self) {
-        self.account_id_set.to_vec().iter().for_each(|account_id| {
-            self.staking_histories_map.remove(account_id);
-        });
-        self.account_id_set.clear();
+    pub fn clear(&mut self) -> MultiTxsOperationProcessingResult {
+        for account_id in self.account_id_set.to_vec() {
+            self.staking_histories_map.remove(&account_id);
+            self.account_id_set.remove(&account_id);
+            if env::used_gas() > Gas::ONE_TERA.mul(T_GAS_CAP_FOR_MULTI_TXS_PROCESSING) {
+                return MultiTxsOperationProcessingResult::NeedMoreGas;
+            }
+        }
+        MultiTxsOperationProcessingResult::Ok
     }
 }

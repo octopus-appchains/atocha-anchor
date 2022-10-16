@@ -14,7 +14,8 @@ async fn test_migration() -> anyhow::Result<()> {
         root,
         _,
         wrapped_appchain_token,
-        _,
+        _registry,
+        _council,
         anchor,
         _wat_faucet,
         users,
@@ -24,16 +25,23 @@ async fn test_migration() -> anyhow::Result<()> {
     // Try start and complete switching era1
     //
     appchain_message_nonce += 1;
-    complex_actions::switch_era(&worker, &root, &anchor, 1, appchain_message_nonce, false)
-        .await
-        .expect("Failed to switch era 1.");
+    complex_actions::switch_era(
+        &worker,
+        &users[5],
+        &anchor,
+        1,
+        appchain_message_nonce,
+        false,
+    )
+    .await
+    .expect("Failed to switch era 1.");
     //
     // Distribut reward of era0
     //
     appchain_message_nonce += 1;
     complex_actions::distribute_reward_of(
         &worker,
-        &root,
+        &users[5],
         &anchor,
         &wrapped_appchain_token,
         appchain_message_nonce,
@@ -42,9 +50,7 @@ async fn test_migration() -> anyhow::Result<()> {
         false,
     )
     .await
-    .expect("Failed to distribute rewards of era 0");
-    //
-    // update deployed wasm
+    .expect("Failed to distribute reward of era 0.");
     //
     root.call(&worker, anchor.id(), "store_wasm_of_self")
         .args(std::fs::read(format!("res/appchain_anchor.wasm"))?)
@@ -63,7 +69,7 @@ async fn test_migration() -> anyhow::Result<()> {
     println!();
     assert!(result.is_success());
     //
-    // confirm result of view functions
+    //
     //
     common::complex_viewer::print_anchor_status(&worker, &anchor).await?;
     common::complex_viewer::print_wrapped_appchain_token_info(&worker, &anchor).await?;
@@ -93,7 +99,5 @@ async fn test_migration() -> anyhow::Result<()> {
         &user1_id_in_appchain,
     )
     .await?;
-    common::complex_viewer::print_staking_histories(&worker, &anchor).await?;
-    common::complex_viewer::print_appchain_notifications(&worker, &anchor).await?;
     Ok(())
 }

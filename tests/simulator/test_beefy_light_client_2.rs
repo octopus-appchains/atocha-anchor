@@ -1,3 +1,4 @@
+use crate::contract_interfaces::settings_manager;
 use crate::{common, contract_interfaces::permissionless_actions};
 use appchain_anchor::types::{MultiTxsOperationProcessingResult, ValidatorMerkleProof};
 use beefy_light_client::commitment::{Commitment, Payload, Signature};
@@ -78,11 +79,16 @@ async fn test_beefy_light_client_2() -> anyhow::Result<()> {
         _oct_token,
         _wrapped_appchain_token,
         _registry,
+        _council,
         anchor,
         _wat_faucet,
         _users,
         _appchain_message_nonce,
     ) = common::test_normal_actions(&worker, false, true, initial_public_keys).await?;
+    //
+    settings_manager::turn_off_beefy_light_client_witness_mode(&worker, &root, &anchor)
+        .await
+        .expect("Failed to call 'turn_off_beefy_light_client_witness_mode'");
     //
     permissionless_actions::start_updating_state_of_beefy_light_client(
         &worker,
@@ -105,7 +111,7 @@ async fn test_beefy_light_client_2() -> anyhow::Result<()> {
             "Result of 'try_complete_updating_state_of_beefy_light_client': {}",
             serde_json::to_string::<MultiTxsOperationProcessingResult>(&result).unwrap()
         );
-        if !result.eq(&MultiTxsOperationProcessingResult::NeedMoreGas) {
+        if !result.is_need_more_gas() {
             break;
         }
     }
