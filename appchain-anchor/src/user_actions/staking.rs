@@ -73,8 +73,10 @@ impl AppchainAnchor {
             &validator_id
         );
         let mut validator_profiles = self.validator_profiles.get().unwrap();
-        let formatted_validator_id_in_appchain =
-            AccountIdInAppchain::new(Some(validator_id_in_appchain.clone()));
+        let formatted_validator_id_in_appchain = AccountIdInAppchain::new(
+            Some(validator_id_in_appchain.clone()),
+            &self.appchain_template_type,
+        );
         formatted_validator_id_in_appchain.assert_valid();
         if let Some(validator_profile) = validator_profiles
             .get_by_id_in_appchain(&formatted_validator_id_in_appchain.to_string())
@@ -252,8 +254,8 @@ impl AppchainAnchor {
         let mut staking_histories = self.staking_histories.get().unwrap();
         let staking_history = staking_histories.append(&mut StakingHistory {
             staking_fact,
-            block_height: env::block_height(),
-            timestamp: env::block_timestamp(),
+            block_height: U64::from(env::block_height()),
+            timestamp: U64::from(env::block_timestamp()),
             index: U64::from(0),
         });
         self.staking_histories.set(&staking_histories);
@@ -595,6 +597,12 @@ impl StakingManager for AppchainAnchor {
                 reward_to_withdraw += reward;
                 self.unwithdrawn_validator_rewards
                     .remove(&(era_number, validator_id.clone()));
+                log!(
+                    "Era reward is withdrawn. Era number: '{}', Validator id: '{}', Amount: '{}'.",
+                    era_number,
+                    validator_id,
+                    reward,
+                );
             }
         }
         if reward_to_withdraw > 0 {
@@ -642,6 +650,13 @@ impl StakingManager for AppchainAnchor {
                     delegator_id.clone(),
                     validator_id.clone(),
                 ));
+                log!(
+                    "Era reward is withdrawn. Era number: '{}', Delegator id: '{}', Validator id: '{}', Amount: '{}'.",
+                    era_number,
+                    delegator_id,
+                    validator_id,
+                    reward,
+                );
             }
         }
         if reward_to_withdraw > 0 {
@@ -657,6 +672,33 @@ impl StakingManager for AppchainAnchor {
             .with_unused_gas_weight(0)
             .ft_transfer(delegator_id, reward_to_withdraw.into(), None);
         }
+    }
+    //
+    fn change_delegated_validator(
+        &mut self,
+        old_validator_id: AccountId,
+        new_validator_id: AccountId,
+    ) {
+        match self.appchain_state {
+            AppchainState::Active | AppchainState::Broken => (),
+            _ => panic!(
+                "Cannot change delegated validator while appchain state is '{}'.",
+                serde_json::to_string(&self.appchain_state).unwrap()
+            ),
+        };
+        let mut next_validator_set = self.next_validator_set.get().unwrap();
+        let delegator_id = env::predecessor_account_id();
+        self.assert_delegator_id(&delegator_id, &old_validator_id, &next_validator_set);
+        self.assert_validator_id(&new_validator_id, &next_validator_set);
+        //
+        let staking_history = self.record_staking_fact(StakingFact::DelegatedValidatorChanged {
+            delegator_id,
+            old_validator_id,
+            new_validator_id,
+        });
+        //
+        next_validator_set.apply_staking_fact(&staking_history.staking_fact);
+        self.next_validator_set.set(&next_validator_set);
     }
 }
 

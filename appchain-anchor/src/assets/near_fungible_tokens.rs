@@ -232,22 +232,8 @@ impl AppchainAnchor {
                 FTDepositMessage::BridgeToAppchain {
                     receiver_id_in_appchain,
                 } => {
-                    AccountIdInAppchain::new(Some(receiver_id_in_appchain.clone())).assert_valid();
-                    let protocol_settings = self.protocol_settings.get().unwrap();
-                    assert!(
-                        near_fungible_tokens.total_market_value()
-                            + near_fungible_tokens.get_market_value_of(
-                                &near_fungible_token.metadata.symbol,
-                                amount.0
-                            )
-                            <= self.get_market_value_of_staked_oct_token().0
-                                * u128::from(
-                                    protocol_settings
-                                        .maximum_market_value_percent_of_near_fungible_tokens
-                                )
-                                / 100,
-                        "Too much NEAR fungible token to lock. Return deposit."
-                    );
+                    AccountIdInAppchain::new(Some(receiver_id_in_appchain.clone()), &self.appchain_template_type).assert_valid();
+                    self.assert_locked_asset_on_near_side(Some((&near_fungible_token, &amount)), &U128::from(0));
                     near_fungible_token.locked_balance =
                         match near_fungible_token.locked_balance.0.checked_add(amount.0) {
                             Some(value) => U128::from(value),
@@ -256,7 +242,7 @@ impl AppchainAnchor {
                     near_fungible_tokens.insert(&near_fungible_token);
                     let appchain_notification_history = self.internal_append_appchain_notification(
                         AppchainNotification::NearFungibleTokenLocked {
-                            contract_account: near_fungible_token.contract_account.clone(),
+                            contract_account: near_fungible_token.contract_account.to_string(),
                             sender_id_in_near: sender_id.clone(),
                             receiver_id_in_appchain: receiver_id_in_appchain.clone(),
                             amount,
@@ -285,10 +271,10 @@ impl AppchainAnchor {
     //
     pub fn internal_unlock_near_fungible_token(
         &mut self,
-        sender_id_in_appchain: String,
-        contract_account: AccountId,
-        receiver_id_in_near: AccountId,
-        amount: U128,
+        sender_id_in_appchain: &String,
+        contract_account: &AccountId,
+        receiver_id_in_near: &AccountId,
+        amount: &U128,
         appchain_message_nonce: u32,
         processing_context: &mut AppchainMessagesProcessingContext,
     ) -> MultiTxsOperationProcessingResult {
@@ -321,7 +307,7 @@ impl AppchainAnchor {
                 .with_attached_deposit(1)
                 .with_static_gas(Gas::ONE_TERA.mul(T_GAS_FOR_FT_TRANSFER))
                 .with_unused_gas_weight(0)
-                .ft_transfer(receiver_id_in_near.clone(), amount, None)
+                .ft_transfer(receiver_id_in_near.clone(), amount.clone(), None)
                 .then(
                     ext_self::ext(env::current_account_id())
                         .with_attached_deposit(0)
@@ -329,9 +315,9 @@ impl AppchainAnchor {
                         .with_unused_gas_weight(0)
                         .resolve_fungible_token_transfer(
                             near_fungible_token.metadata.symbol,
-                            sender_id_in_appchain,
+                            sender_id_in_appchain.clone(),
                             receiver_id_in_near.clone(),
-                            amount,
+                            amount.clone(),
                             appchain_message_nonce,
                         ),
                 );
@@ -361,28 +347,32 @@ impl FungibleTokenContractResolver for AppchainAnchor {
         symbol: String,
         sender_id_in_appchain: String,
         receiver_id_in_near: AccountId,
-        _amount: U128,
+        amount: U128,
         appchain_message_nonce: u32,
     ) {
         assert_self();
         match env::promise_result(0) {
             PromiseResult::NotReady => unreachable!(),
             PromiseResult::Successful(_) => {
+                let message = format!(
+                    "Near fungible token '{}' with amount '{}' for appchain account '{}' is unlocked.",
+                    symbol, amount.0, sender_id_in_appchain
+                );
                 self.record_appchain_message_processing_result(
                     &AppchainMessageProcessingResult::Ok {
                         nonce: appchain_message_nonce,
-                        message: None,
+                        message: Some(message),
                     },
                 );
             }
             PromiseResult::Failed => {
                 let reason = format!(
-                    "Maybe the receiver account '{}' is not registered in '{}' token contract.",
+                    "Maybe the receiver account '{}' is not exised, or it is not registered in '{}' token contract.",
                     &receiver_id_in_near, &symbol
                 );
                 let message = format!(
-                    "Failed to unlock near fungible token for appchain account '{}'. {}",
-                    sender_id_in_appchain, reason
+                    "Failed to unlock near fungible token '{}' with amount '{}' for appchain account '{}'. {}",
+                    symbol, amount.0, sender_id_in_appchain, reason
                 );
                 self.record_appchain_message_processing_result(
                     &AppchainMessageProcessingResult::Error {

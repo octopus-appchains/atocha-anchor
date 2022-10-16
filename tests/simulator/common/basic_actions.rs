@@ -1,3 +1,4 @@
+use appchain_anchor::types::AppchainTemplateType;
 use near_contract_standards::fungible_token::metadata::{FungibleTokenMetadata, FT_METADATA_SPEC};
 use near_sdk::json_types::Base64VecU8;
 use near_sdk::json_types::U128;
@@ -5,6 +6,8 @@ use near_sdk::serde_json::json;
 use near_units::parse_near;
 use workspaces::network::Sandbox;
 use workspaces::{Account, Contract, Worker};
+
+const TEST_APPCHAIN_ID: &str = "test-appchain";
 
 pub async fn initialize_contracts_and_users(
     worker: &Worker<Sandbox>,
@@ -16,9 +19,10 @@ pub async fn initialize_contracts_and_users(
     Contract,
     Contract,
     Contract,
+    Contract,
     Vec<Account>,
 )> {
-    let root = worker.root_account();
+    let root = worker.root_account().unwrap();
     let mut users: Vec<Account> = Vec::new();
     //
     // deploy OCT token contract
@@ -33,8 +37,8 @@ pub async fn initialize_contracts_and_users(
         decimals: 18,
     };
     let oct_token = root
-        .create_subaccount(worker, "oct_token")
-        .initial_balance(parse_near!("50 N"))
+        .create_subaccount(worker, "oct-token")
+        .initial_balance(parse_near!("10 N"))
         .transact()
         .await?
         .unwrap();
@@ -56,8 +60,8 @@ pub async fn initialize_contracts_and_users(
     // deploy appchain registry contract
     //
     let appchain_registry = root
-        .create_subaccount(worker, "appchain_registry")
-        .initial_balance(parse_near!("50 N"))
+        .create_subaccount(worker, "appchain-registry")
+        .initial_balance(parse_near!("100 N"))
         .transact()
         .await?
         .unwrap();
@@ -77,11 +81,34 @@ pub async fn initialize_contracts_and_users(
         .transact()
         .await?;
     //
+    // deploy octopus council contract
+    //
+    let octopus_council = appchain_registry
+        .as_account()
+        .create_subaccount(worker, "octopus-council")
+        .initial_balance(parse_near!("10 N"))
+        .transact()
+        .await?
+        .unwrap();
+    let octopus_council = octopus_council
+        .deploy(worker, &std::fs::read(format!("res/octopus_council.wasm"))?)
+        .await?
+        .unwrap();
+    octopus_council
+        .call(worker, "new")
+        .args_json(json!({
+            "max_number_of_council_members": 3
+        }))?
+        .gas(300_000_000_000_000)
+        .transact()
+        .await?;
+    //
     // deploy appchain anchor contract
     //
-    let appchain_anchor = root
-        .create_subaccount(worker, "appchain_anchor")
-        .initial_balance(parse_near!("100 N"))
+    let appchain_anchor = appchain_registry
+        .as_account()
+        .create_subaccount(worker, TEST_APPCHAIN_ID)
+        .initial_balance(parse_near!("50 N"))
         .transact()
         .await?
         .unwrap();
@@ -89,7 +116,7 @@ pub async fn initialize_contracts_and_users(
         true => appchain_anchor
             .deploy(
                 worker,
-                &std::fs::read(format!("res/appchain_anchor_v2.1.0.wasm"))?,
+                &std::fs::read(format!("res/appchain_anchor_v2.2.0.wasm"))?,
             )
             .await?
             .unwrap(),
@@ -98,22 +125,39 @@ pub async fn initialize_contracts_and_users(
             .await?
             .unwrap(),
     };
-    root.call(worker, appchain_anchor.id(), "new")
-        .args_json(json!({
-            "appchain_id": "test_appchain_id".to_string(),
-            "appchain_registry": appchain_registry.id(),
-            "oct_token": oct_token.id(),
-        }))?
-        .gas(300_000_000_000_000)
-        .transact()
-        .await?;
+    match with_old_anchor {
+        true => {
+            root.call(worker, appchain_anchor.id(), "new")
+                .args_json(json!({
+                    "appchain_id": TEST_APPCHAIN_ID.to_string(),
+                    "appchain_template_type": AppchainTemplateType::Barnacle,
+                    "appchain_registry": appchain_registry.id(),
+                    "oct_token": oct_token.id(),
+                }))?
+                .gas(300_000_000_000_000)
+                .transact()
+                .await?
+        }
+        false => {
+            root.call(worker, appchain_anchor.id(), "new")
+                .args_json(json!({
+                    "appchain_id": TEST_APPCHAIN_ID.to_string(),
+                    "appchain_template_type": AppchainTemplateType::Barnacle,
+                    "appchain_registry": appchain_registry.id(),
+                    "oct_token": oct_token.id(),
+                }))?
+                .gas(300_000_000_000_000)
+                .transact()
+                .await?
+        }
+    };
     //
     // deploy wrapped appchain token faucet contract
     //
     let wat_faucet = appchain_anchor
         .as_account()
         .create_subaccount(worker, "wat-faucet")
-        .initial_balance(parse_near!("50 N"))
+        .initial_balance(parse_near!("5 N"))
         .transact()
         .await?
         .unwrap();
@@ -182,11 +226,20 @@ pub async fn initialize_contracts_and_users(
     register_user_to_ft_contract(worker, &eve, &oct_token).await?;
     super::call_ft_transfer(worker, &root, &eve, total_supply / 10, &oct_token).await?;
     users.push(eve);
+    // relayer
+    let relayer = root
+        .create_subaccount(worker, "relayer")
+        .initial_balance(parse_near!("50 N"))
+        .transact()
+        .await?
+        .unwrap();
+    users.push(relayer);
     // Return initialized UserAccounts
     Ok((
         root,
         oct_token,
         appchain_registry,
+        octopus_council,
         appchain_anchor,
         wat_faucet,
         users,

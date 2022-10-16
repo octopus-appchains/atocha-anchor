@@ -1,21 +1,14 @@
 use crate::*;
-
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{LazyOption, LookupMap};
 use near_sdk::{env, near_bindgen, AccountId, Balance};
-
-#[derive(BorshDeserialize, BorshSerialize, Serialize, Deserialize, Clone)]
-#[serde(crate = "near_sdk::serde")]
-pub struct OldAppchainSettings {
-    pub rpc_endpoint: String,
-    pub subql_endpoint: String,
-    pub era_reward: U128,
-}
 
 #[derive(BorshDeserialize, BorshSerialize)]
 pub struct OldAppchainAnchor {
     /// The id of corresponding appchain.
     appchain_id: AppchainId,
+    /// The type of appchain template of corresponding appchain.
+    appchain_template_type: AppchainTemplateType,
     /// The account id of appchain registry contract.
     appchain_registry: AccountId,
     /// The owner account id.
@@ -44,7 +37,7 @@ pub struct OldAppchainAnchor {
     /// The validators' profiles data.
     validator_profiles: LazyOption<ValidatorProfiles>,
     /// The custom settings for appchain.
-    appchain_settings: LazyOption<OldAppchainSettings>,
+    appchain_settings: LazyOption<AppchainSettings>,
     /// The anchor settings for appchain.
     anchor_settings: LazyOption<AnchorSettings>,
     /// The protocol settings for appchain anchor.
@@ -53,8 +46,6 @@ pub struct OldAppchainAnchor {
     appchain_state: AppchainState,
     /// The staking history data happened in this contract.
     staking_histories: LazyOption<LookupArray<StakingHistory>>,
-    /// The anchor event history data.
-    anchor_event_histories: LazyOption<LookupArray<AnchorEventHistory>>,
     /// The appchain notification history data.
     appchain_notification_histories: LazyOption<LookupArray<AppchainNotificationHistory>>,
     /// The status of permissionless actions.
@@ -83,18 +74,13 @@ impl AppchainAnchor {
     pub fn migrate_state() -> Self {
         // Deserialize the state using the old contract structure.
         let old_contract: OldAppchainAnchor = env::state_read().expect("Old state doesn't exist");
-        // Verify that the migration can only be done by the owner.
-        // This is not necessary, if the upgrade is done internally.
-        assert_eq!(
-            &env::predecessor_account_id(),
-            &env::current_account_id(),
-            "Can only be called by self"
-        );
         //
-        let old_appchain_settings = old_contract.appchain_settings.get().unwrap();
+        near_sdk::assert_self();
+        //
         // Create the new contract using the data from the old contract.
         let new_contract = AppchainAnchor {
             appchain_id: old_contract.appchain_id,
+            appchain_template_type: old_contract.appchain_template_type,
             appchain_registry: old_contract.appchain_registry,
             owner: old_contract.owner,
             owner_pk: old_contract.owner_pk,
@@ -107,15 +93,11 @@ impl AppchainAnchor {
             unwithdrawn_delegator_rewards: old_contract.unwithdrawn_delegator_rewards,
             unbonded_stakes: old_contract.unbonded_stakes,
             validator_profiles: old_contract.validator_profiles,
-            appchain_settings: LazyOption::new(
-                StorageKey::AppchainSettings.into_bytes(),
-                Some(&AppchainSettings::from_old_version(old_appchain_settings)),
-            ),
+            appchain_settings: old_contract.appchain_settings,
             anchor_settings: old_contract.anchor_settings,
             protocol_settings: old_contract.protocol_settings,
             appchain_state: old_contract.appchain_state,
             staking_histories: old_contract.staking_histories,
-            anchor_event_histories: old_contract.anchor_event_histories,
             appchain_notification_histories: old_contract.appchain_notification_histories,
             permissionless_actions_status: old_contract.permissionless_actions_status,
             beefy_light_client_state: old_contract.beefy_light_client_state,
@@ -126,21 +108,13 @@ impl AppchainAnchor {
             appchain_messages: old_contract.appchain_messages,
             appchain_challenges: old_contract.appchain_challenges,
             wrapped_appchain_nfts: old_contract.wrapped_appchain_nfts,
+            native_near_token: LazyOption::new(
+                StorageKey::NativeNearToken.into_bytes(),
+                Some(&NativeNearToken::default()),
+            ),
         };
         //
         //
         new_contract
-    }
-}
-
-impl AppchainSettings {
-    //
-    pub fn from_old_version(old_version: OldAppchainSettings) -> Self {
-        Self {
-            rpc_endpoint: old_version.rpc_endpoint,
-            subql_endpoint: old_version.subql_endpoint,
-            era_reward: old_version.era_reward,
-            bonus_for_new_validator: U128::from(0),
-        }
     }
 }
